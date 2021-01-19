@@ -1,0 +1,518 @@
+from tkinter import ttk
+import tkinter as tk
+from tkinter import messagebox
+import warnings
+import xlrd
+from pandas import ExcelWriter
+import os
+import openpyxl
+import xlsxwriter
+import tkHyperlinkManager
+import numpy as np
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from matplotlib.figure import Figure
+from tkinter import filedialog
+import pandas as pd
+import datetime as dt
+from datetime import datetime
+import matplotlib.pyplot as plt
+import time
+
+
+root=tk.Tk()
+root.geometry("1200x1200+200+200")
+
+warnings.filterwarnings("ignore", "(?s).*MATPLOTLIBDATA.*", category=UserWarning)
+
+def on_click(button):
+	e.delete('0',tk.END)
+	global import_file_path
+	import_file_path = filedialog.askopenfilename()
+	global dicts
+	global df
+	try:
+		if("OM" in import_file_path):
+			#e.delete(0, 'end')
+			#l=[]
+			dicts={1:0,2:0,3:0,4:0}
+			l = datetime.now().strftime("%Y%m%d-%H%M%S").split('-')
+			newname='OM_'+l[0]+'_'+l[1]+'.xlsx'
+			df = pd.read_table(import_file_path, sep='|', engine='c',dtype=str)
+			df.to_excel('OM.xlsx',index=False)
+			os.rename('OM.xlsx', newname)
+			#button.e.delete(0,tk.END)
+			e.insert(0,import_file_path)
+			df=pd.read_excel(newname)
+
+			global Rule1_Final_Df,Prim_Ass_Final_df,Field_Final_Df,active_field_df
+
+			#Rule 1
+			#EcoSystem Code and Ecosystem Name Should not be Blank
+			Rule1_df = df.loc[(df.ECOSYSTEM_NAME == '-') | (df.ECOSYSTEM_NAME.str.len()<2) | (df.ECOSYSTEM_NAME.isnull())]
+			dicts[1]=Rule1_df.shape[0]
+			Rule1_Final_Df=pd.DataFrame(Rule1_df[['GUID','UNIX_ID','ECOSYSTEM_NAME','PRIM_FLAG','FIELD_TITLE','ASGNT_STRT_DT','ASGNT_END_DT']])
+			Rule1_Final_Df['Description']='EcoSystem Code and Ecosystem Name Should not be Blank'
+			#print(Rule1_Final_Df)
+
+			#Rule 2
+			#Field title should be end dated if the primary assignment is end dated for that user
+
+			#Requirement is not clear
+			df['ASGNT_END_DT'] = pd.to_datetime(df['ASGNT_END_DT'])
+			a=datetime.today().strftime("%Y-%m-%d").split()
+			Prim_Ass_df=df.loc[(df['ASGNT_END_DT']<a[0])]
+			dicts[2]=Prim_Ass_df.shape[0]
+			Prim_Ass_Final_df=pd.DataFrame(Prim_Ass_df[['GUID','UNIX_ID','FIELD_TITLE','PRIM_FLAG','ASGNT_STRT_DT','ASGNT_END_DT']])
+			Prim_Ass_Final_df['Description']='Field title should be end dated if the primary assignment is end dated for that user'
+			
+			#Rule 3
+			#Field Title Should not be BLANK
+			Field_df=df.loc[(df.FIELD_TITLE == '-') | (df.FIELD_TITLE.str.len()<2) | (df.FIELD_TITLE.isnull())]
+			dicts[3]=Field_df.shape[0]
+			Field_Final_Df=pd.DataFrame(Field_df[['GUID','UNIX_ID','PRIM_FLAG','ECOSYSTEM_NAME','FIELD_TITLE','ASGNT_STRT_DT','ASGNT_END_DT']])
+			Field_Final_Df['Description']='Field Title Should not be BLANK'
+			#print(Field_Final_Df)
+
+			#Rule 4
+			#There should not be more than one active field title for the same employee within the given period 
+			df1 = df.loc[(df['EMP_STATUS'] =='A')]
+			df2=df1[df1.duplicated(subset=['GUID','FIELD_TITLE','ASGNT_STRT_DT','ASGNT_END_DT'], keep=False)]
+			df2.sort_values(by=['GUID'], inplace=True, ascending=True)
+			dicts[4]=df2.shape[0]
+			active_field_df=pd.DataFrame(df2[['GUID','UNIX_ID','EMP_STATUS','PRIM_FLAG','FIELD_TITLE','ASGNT_STRT_DT','ASGNT_END_DT']])
+			active_field_df['Description']='There should not be more than one active field title for the same employee within the given period'
+
+			time.sleep(1)
+			messagebox.showinfo("Info","File has been Processed")
+			moving_process()
+			#e.config(state='readonly')
+			#messagebox.showinfo("File Open","File Selected is:{}".format(import_file_path))
+		elif("WORKDAY" in import_file_path):
+			dicts={1:0,2:0,3:0,4:0,5:0}
+			l = datetime.now().strftime("%Y%m%d-%H%M%S").split('-')
+			newname='WorkDay'+l[0]+'_'+l[1]+'.xlsx'
+			df = pd.read_table(import_file_path, sep='|', engine='c',dtype=str)
+			df.to_excel('WorkDay.xlsx',index=False)
+			os.rename('WorkDay.xlsx', newname)
+			#button.e.delete(0,tk.END)
+			e.insert(0,import_file_path)
+			df=pd.read_excel(newname)
+
+			global TERM_DT_DF,TERM_STATUS_DF,GUID_DUP_DF,WDAY_ID_DF,GRADE_PROF_DF
+
+			#Rule 1
+			#TERMINATION_DT should not be null if TERMINATED_STATUS = 'T'
+			Rule1_df=df.loc[(df['IS_TERMINATED_FLAG']==1)&(df.TERMINATION_DATE.isnull())]
+			#Rule1_df =Rule1_df.loc[(df.TERMINATION_DATE == '-') | (df.TERMINATION_DATE.isnull())]
+			dicts[1]=Rule1_df.shape[0]
+			TERM_DT_DF=pd.DataFrame(Rule1_df[['GUID_ID','USERNAME','GRADE_PROFILE_NAME','IS_ACTIVE_FLAG','IS_TERMINATED_FLAG','TERMINATION_DATE']])
+			TERM_DT_DF['Description']='TERMINATION_DT should not be null if TERMINATED_STATUS = T'
+			#print(TERM_DT_DF)
+
+			#Rule2
+			#TERMINATED_STATUS should be ‘T’ if TERMINATION_DT is available.
+			Rule2_df=df.loc[(df.TERMINATION_DATE.notnull()) &(df['IS_TERMINATED_FLAG']==0)]
+			#Rule2_df=df.loc[(df['IS_TERMINATED_FLAG']==0)]
+			dicts[2]=Rule2_df.shape[0]
+			TERM_STATUS_DF=pd.DataFrame(Rule2_df[['GUID_ID','USERNAME','GRADE_PROFILE_NAME','IS_ACTIVE_FLAG','IS_TERMINATED_FLAG','TERMINATION_DATE']])
+			TERM_STATUS_DF['Description']='TERMINATED_STATUS should be ‘T’ if TERMINATION_DT is available'
+			
+			#Rule3
+			#There should not be any duplicate record for same employee
+			Rule3_df=df[df.duplicated(subset=['GUID_ID'],keep=False)]
+			dicts[3]=Rule3_df.shape[0]
+			GUID_DUP_DF=pd.DataFrame(Rule3_df[['GUID_ID','USERNAME','GRADE_PROFILE_NAME','IS_ACTIVE_FLAG','IS_TERMINATED_FLAG','TERMINATION_DATE']])
+			GUID_DUP_DF['Description']='There should not be any duplicate record for same employee'
+			
+			#Rule4
+			#WDAY_ID should not be null for employees post 2020
+			df['HIRE_DATE'] = pd.to_datetime(df['HIRE_DATE'])
+			#print(df['HIRE_DATE'])
+			a=datetime(2020,1,1)
+			Prim_Ass_df=df.loc[df['HIRE_DATE']>=a]
+			Rule4_df=Prim_Ass_df.loc[Prim_Ass_df.WORKER_ID.isnull()]
+			dicts[4]=Rule4_df.shape[0]
+			WDAY_ID_DF=pd.DataFrame(Rule4_df[['GUID_ID','USERNAME','GRADE_PROFILE_NAME','IS_ACTIVE_FLAG','IS_TERMINATED_FLAG','TERMINATION_DATE']])
+			WDAY_ID_DF['Description']='WDAY_ID should not be null for employees post 2020'
+			
+			#Rule5
+			#There should not be single Grade Profile Name for single GUID at the same point in time
+			Rule5_df=df[df.duplicated(subset=['GUID_ID','GRADE_PROFILE_NAME'],keep=False)]
+			dicts[5]=Rule5_df.shape[0]
+			GRADE_PROF_DF=pd.DataFrame(Rule5_df[['GUID_ID','USERNAME','GRADE_PROFILE_NAME','IS_ACTIVE_FLAG','IS_TERMINATED_FLAG','TERMINATION_DATE']])
+			GRADE_PROF_DF['Description']='There should not be single Grade Profile Name for single GUID at the same point in time'
+			
+			time.sleep(1)
+			messagebox.showinfo("Info","File has been Processed")
+			moving_process()
+		else:
+			raise Exception
+	except Exception as ex:
+		messagebox.showerror("Error",ex)
+
+
+def moving_process():
+	try:		
+		filename="Issues_File.xlsx"
+		if(os.path.exists(filename)):
+			os.remove(filename)
+		if("OM" in import_file_path):
+			if(os.path.exists(filename)!=True):
+				book = xlsxwriter.Workbook(filename)
+				sheet = book.add_worksheet() 
+				row,column = 0,0
+				columns=['Rule','Description','File_Name','Issue_Log_date','Total Records','Records Passed','Records Failed','Comments'] 
+				bold = book.add_format({'bold': True})
+				text_format = book.add_format({'text_wrap': True})
+				for item in columns :
+					sheet.write(row, column, item,bold)
+					sheet.set_column(row, column, 15)
+					column=column+1
+
+				Description=['EcoSystem Code and Ecosystem Name Should not be Blank','Field title should be end dated if the primary assignment is end dated for that user',
+				'Field Title Should not be BLANK','There should not be more than one active field title for the same employee within the given period']
+				
+				Comments=['Ecosystem Name is Blank for the failed GUIDs','End Date is default for the failed GUID records who have PRIM_ASSIGNEMENT',
+				'Field Title is Blank for these records','Have more than one Active Field for the failed GUIDs']
+				row,column = 1,1
+				for item in Description:
+					sheet.write(row,column,item,text_format)
+					row=row+1
+				row,column=1,7
+				for item1 in Comments:
+					sheet.write(row,column,item1,text_format)
+					row=row+1
+
+				book.close()
+				book1 = openpyxl.load_workbook(filename)
+				sheet = book1.active
+				cols=sheet.max_column
+				rows=sheet.max_row
+				i=2
+
+				for i in range(2,rows+1):
+					#sheet.cell(row=i,column=1).value=(i-1)
+					sheet.cell(row=i,column=1).value=str('Rule_'+str(i-1))
+					sheet.cell(row=i,column=3).value='OM'
+					a=datetime.today().strftime("%d-%m-%Y")
+					sheet.cell(row=i,column=4).value=datetime.today().strftime("%d-%m-%Y")
+				book1.save(filename)
+		elif("WORKDAY" in import_file_path):
+			book = xlsxwriter.Workbook(filename)
+			sheet = book.add_worksheet() 
+			row,column = 0,0
+			columns=['Rule','Description','File_Name','Issue_Log_date','Total Records','Records Passed','Records Failed','Comments'] 
+			bold = book.add_format({'bold': True})
+			text_format = book.add_format({'text_wrap': True})
+
+			for item in columns :
+				sheet.write(row, column, item,bold)
+				sheet.set_column(row, column, 15)
+				column=column+1
+			
+
+			Description=['TERMINATION_DT should not be null if TERMINATED_STATUS = T','TERMINATED_STATUS should be ‘T’ if TERMINATION_DT is available.',
+			'There should not be any duplicate record for same employee','WDAY_ID should not be null for employees post 2020',
+			'There should not be single Grade Profile Name for single GUID at the same point in time']
+			row,column=1,1
+
+			for item in Description:
+				sheet.write(row,column,item,text_format)
+				row=row+1
+
+			Comments=['Termination_Date is null for these records even though Terminated_Flag is 1','Terminated_Flag is 0 even though Termination_Date is available',
+			'Duplicate GUIDs found','WDAY_ID is null for these whose HIRE_DATE is post 2020','Have Duplcate Grade Profile Names for Single GUID']	
+
+			row,column=1,7
+			for item1 in Comments:
+				sheet.write(row,column,item1,text_format)
+				row=row+1	
+
+			book.close()
+			book1 = openpyxl.load_workbook(filename)
+			sheet = book1.active
+			cols=sheet.max_column
+			rows=sheet.max_row
+			i=2
+
+			for i in range(2,rows+1):
+				#sheet.cell(row=i,column=1).value=(i-1)
+				sheet.cell(row=i,column=1).value=str('Rule_'+str(i-1))
+				sheet.cell(row=i,column=3).value='WORKDAY'
+				sheet.cell(row=i,column=4).value=datetime.today().strftime("%d-%m-%Y")
+			book1.save(filename)
+		book1=openpyxl.load_workbook(filename)
+		sheet = book1.active
+		cols=sheet.max_column
+		rows=sheet.max_row
+		j,k,l=5,6,7
+		for i in range(2,rows+1):
+			Issue_Date=datetime.today().strftime("%d-%m-%Y")
+			a=dicts[i-1]
+			sheet.cell(row=i, column=l).value = a
+			print("Done")
+			d=df.shape[0]
+			sheet.cell(row=i,column=j).value=d
+			diff=int(int(d)-int(a))
+			sheet.cell(row=i,column=k).value=diff	
+		book1.save(filename)
+		messagebox.showinfo("Info","File has been created at:{}".format(filename))
+		Issue_Log()
+
+	except Exception as ex:
+		messagebox.showinfo("Error",ex)
+
+def create_charts(button2):
+	try:
+		if("OM" in import_file_path):
+			global bar1
+			global pie1
+			def absolute_value2(val):
+				a = np.round(val/100.*pieSizes.sum(), 0)
+				return int(a)
+			df=pd.read_excel('Issues_File.xlsx')
+			df['Issue_Log_date']=pd.to_datetime(df['Issue_Log_date'])
+			df['Week']=df['Issue_Log_date'].dt.isocalendar().week
+			Om_Sum=df['Records Failed'].sum(axis = 0, skipna = True)
+
+			def autolabel(rects):
+				for rect in rects:
+					height = rect.get_height()
+					ax1.text(rect.get_x() + rect.get_width()/2., 1*height,'%d' % int(height),ha='center', va='bottom')
+
+			figure1 = plt.Figure(figsize=(6,5), dpi=100)
+			ax1 = figure1.add_subplot(111)
+			bar1 = FigureCanvasTkAgg(figure1, ContainerTwo)
+			bar1.get_tk_widget().grid(row=10,column=0)
+			df1= df[['Rule','Records Failed']].groupby('Rule').sum()
+			ax1.set_xlabel('Rule Name')
+			ax1.set_ylabel('OM Issues Per Rule')
+			barplot=df1.plot(kind='bar', legend=True, ax=ax1)
+			ax1.tick_params(labelrotation=360)
+			ax1.set_title('Rule Wise Issues')
+			rects=barplot.patches
+
+			autolabel(rects)
+
+
+			figure2 = plt.Figure(figsize=(6,5), dpi=100)
+			ax2 = figure2.add_subplot(111)
+			pie1 = FigureCanvasTkAgg(figure2,ContainerTwo)
+			pie1.get_tk_widget().grid(row=10,column=1)
+			#colors=['green','yellow','red','lightskyblue']
+			pieSizes = df[['Rule','Records Failed']].groupby('Rule').sum()
+			pieSizes.plot(kind='pie', legend=True, ax=ax2,subplots=True,autopct=absolute_value2)
+			ax2.set_title('Rule Wise OM Issues-Pie')
+
+		elif("WORKDAY" in import_file_path):
+			global bar2
+			global pie2
+			def absolute_value2(val):
+				a = np.round(val/100.*pieSizes.sum(), 0)
+				return int(a)
+			df=pd.read_excel('Issues_File.xlsx')
+			df['Issue_Log_date']=pd.to_datetime(df['Issue_Log_date'])
+			df['Week']=df['Issue_Log_date'].dt.isocalendar().week
+			Om_Sum=df['Records Failed'].sum(axis = 0, skipna = True)
+
+			def autolabel(rects):
+				for rect in rects:
+					height = rect.get_height()
+					ax1.text(rect.get_x() + rect.get_width()/2., 1*height,'%d' % int(height),ha='center', va='bottom')
+
+			figure1 = plt.Figure(figsize=(6,5), dpi=100)
+			ax1 = figure1.add_subplot(111)
+			bar2 = FigureCanvasTkAgg(figure1, ContainerTwo)
+			bar2.get_tk_widget().grid(row=10,column=0)
+			df1= df[['Rule','Records Failed']].groupby('Rule').sum()
+			ax1.set_xlabel('Rule Name')
+			ax1.set_ylabel('Issues Per Rule')
+			barplot=df1.plot(kind='bar', legend=True, ax=ax1)
+			ax1.tick_params(labelrotation=360)
+			ax1.set_title('WORKDAY Rule Wise Issues')
+			rects=barplot.patches
+
+			autolabel(rects)
+
+			figure2 = plt.Figure(figsize=(6,5), dpi=100)
+			ax2 = figure2.add_subplot(111)
+			pie2 = FigureCanvasTkAgg(figure2,ContainerTwo)
+			pie2.get_tk_widget().grid(row=10,column=1)
+			#colors=['green','yellow','red','lightskyblue']
+			pieSizes = df[['Rule','Records Failed']].groupby('Rule').sum()
+			pieSizes.plot(kind='pie', legend=True, ax=ax2,subplots=True,autopct=absolute_value2)
+			ax2.set_title('Rule Wise WORKDAY Issues-Pie')
+		else:
+			raise Exception
+	except Exception as ex:
+		messagebox.showinfo("Error",ex)
+    
+
+def Issue_Log():
+	try:
+		if(("OM" in import_file_path)|("WORKDAY" in import_file_path)):
+			loc = ("Issues_File.xlsx")	
+			wb = xlrd.open_workbook(loc)
+			sheet = wb.sheet_by_index(0)
+			sheet.cell_value(0, 0)
+			for i in range(sheet.nrows):
+				for j in range(sheet.ncols):
+					if(i==0):
+						e=tk.Text(ContainerOne, height=2,width=14,wrap=tk.WORD,fg='Black',font=('Arial Bold',12),pady=10)
+						e.grid(row=i+4, column=j,sticky="nesw")
+						#e.config(state=tk.NORMAL)
+						#e.delete('0',tk.END)
+						e.insert(tk.END, sheet.cell_value(i,j))
+						e.config(state=tk.DISABLED)						
+							
+					elif(i!=0 and (j==5 or j==6 or j==4)):
+						e = tk.Text(ContainerOne, height=4,width=9,wrap=tk.WORD,pady=10,fg='black',font=('Arial ',10))
+						e.grid(row=i+4, column=j,sticky="nesw")
+						#e.config(state=tk.NORMAL)
+						#e.delete('0',tk.END)
+						e.insert(tk.END, int(sheet.cell_value(i,j)))
+						e.config(state=tk.DISABLED)
+					else:
+						e = tk.Text(ContainerOne, height=4,width=14,wrap=tk.WORD,pady=10,fg='black',font=('Arial ',10))
+						e.grid(row=i+4, column=j,sticky="nesw")
+						#e.config(state=tk.NORMAL)
+						#e.delete('0',tk.END)
+						e.insert(tk.END, sheet.cell_value(i,j))
+						e.config(state=tk.DISABLED)
+			#button4.grid_forget()
+		else:
+			raise Exception
+	except Exception as ex:
+		messagebox.showerror("Error",ex)
+
+def clear_charts():
+	try:
+		if("OM" in import_file_path):
+			bar1.get_tk_widget().grid_forget()
+			pie1.get_tk_widget().grid_forget()
+		elif("WORKDAY" in import_file_path):
+			bar2.get_tk_widget().grid_forget()
+			pie2.get_tk_widget().grid_forget()
+		#e.get_tk_widget().grid_forget()
+	except Exception:
+		messagebox.showinfo("Error","Cannot Clear Charts")
+
+def dfs_tabs(df_list, sheet_list, file_name):
+    writer = pd.ExcelWriter(file_name,engine='xlsxwriter')   
+    for dataframe, sheet in zip(df_list, sheet_list):
+        dataframe.to_excel(writer, index=False,sheet_name=sheet, startrow=0 , startcol=0)   
+    writer.save()
+
+def save_xls(list_dfs, export_file_path):
+    with ExcelWriter(export_file_path) as writer:
+        for n, df in enumerate(list_dfs):
+            df.to_excel(writer,'Rule_%s' % (n+1),index=False)
+        writer.save()
+
+def click1():
+	try:
+		if("OM" in import_file_path):
+			export_file_path =  filedialog.asksaveasfilename(defaultextension='.xlsx')
+			dfs = [Rule1_Final_Df, Prim_Ass_Final_df, Field_Final_Df,active_field_df]
+			sheets = ['Rule1','Rule2','Rule3','Rule4']
+			#dfs_tabs(dfs, sheets, 'multi-sheet.xlsx')
+			save_xls(dfs,export_file_path)
+			#OM_Issues=pd.read_excel('multi-sheet.xlsx')
+			#OM_Issues = pd.concat(pd.read_excel('multi-sheet.xlsx', sheet_name=None), ignore_index=True)
+			#OM_Issues.to_excel (export_file_path, index = False, header=True,sheet_name=None)
+			messagebox.showinfo("Message","File Saved at :{}".format(export_file_path))
+		elif("WORKDAY" in import_file_path):
+			export_file_path =  filedialog.asksaveasfilename(defaultextension='.xlsx')
+			dfs = [TERM_DT_DF,TERM_STATUS_DF,GUID_DUP_DF,WDAY_ID_DF,GRADE_PROF_DF]
+			#sheets = ['Rule1','Rule2','Rule3','Rule4','Rule5','Rule6']
+			#dfs_tabs(dfs, sheets, 'multi-sheet1.xlsx')
+			save_xls(dfs,export_file_path)
+			messagebox.showinfo("Message","File Saved at :{}".format(export_file_path))
+	except Exception:
+		messagebox.showinfo("Error","Couldn't Export the Issues as you have selected the incorrect file")
+
+#Create a Main Frame
+main_frame = tk.Frame(root)
+main_frame.grid(row=0)
+#main_frame.pack(fill=tk.BOTH,expand=1)
+
+e1=tk.Entry(root,width="30",justify=tk.CENTER,font=('Times 15'),disabledforeground='violet red')
+e1.grid(row=1,pady=20)
+e1.insert(tk.END, "IC VALIDATIONS FILE PROCESS")
+e1.config(state=tk.DISABLED,fg='violet red',bg='violet')
+
+
+#label=tk.Label(root,text="IC Validations File Process", justify=tk.CENTER,font=('Times 15'), fg='violet red',pady=20)
+#label.grid(row=0,column=0)
+
+#Creating Notebook
+
+notebook = ttk.Notebook(root)
+notebook.grid(sticky="nesw")
+
+# Child frames
+ContainerOne = ttk.Frame(notebook)
+ContainerOne.grid(sticky="nesw")
+
+ContainerTwo = ttk.Frame(notebook)
+ContainerTwo.grid(sticky="nesw")
+
+
+#ContainerThree=ttk.Frame(notebook)
+#ContainerThree.grid(sticky="nesw") 
+
+# Create the pages
+notebook.add(ContainerOne, text='Home Tab')
+notebook.add(ContainerTwo, text='Details Tab')
+#notebook.add(ContainerThree,text='Details Tab')
+
+
+label=tk.Label(ContainerOne, text="Select File:  ",font=('Times 15'),fg='steel blue').grid(row=2)
+
+e = tk.Entry(ContainerOne,width="50")
+e.grid(row=2,column=1)
+#e.bind("<1>", delete_entry)
+
+
+button = tk.Button(ContainerOne,text="Open File",font=('Arial 10 bold'), fg='medium sea green',command=lambda:on_click(button))                
+#button.pack()
+button.grid(row=2,column=2)
+#e.delete('1')
+
+#button1=tk.Button(ContainerOne,text="Generate the report",font=('Arial 10 bold'), fg='medium sea green',command=lambda:moving_process())
+#button1.grid(row=4,column=1) 
+
+
+button2 = tk.Button(ContainerTwo,text="Create Charts",font=('Arial 10 bold'),fg='medium sea green',command=lambda:create_charts(button2))                
+button2.grid(row=7,column=0)
+
+button3=tk.Button(ContainerTwo,text="Clear Charts",font=('Arial 10 bold'),fg='medium sea green',command=lambda:clear_charts())
+button3.grid(row=7,column=1)
+
+
+#button4 = tk.Button(ContainerTwo,text="Issue_Log",command=lambda:Issue_Log()) 
+#button4.grid(row=13,column=13)
+
+#text = tk.Text(ContainerThree,fg='red')
+#text.grid(row=7,column=2,sticky="nesw", rowspan=100,columnspan=100)
+
+link1 = tk.Label(ContainerTwo, text="Export Detailed Issues Here", fg="blue", cursor="hand2")
+link1.grid(row=7, column=2)
+link1.bind("<Button-1>", lambda e: click1())
+
+#link = tk.Link_Button(ContainerTwo, text="Google Hyperlink", action=click1)
+
+
+#hyperlink = tkHyperlinkManager.HyperlinkManager(link1)
+
+#text.insert(tk.INSERT, "Issues:Export Here ")
+#text.insert(tk.INSERT, "link", hyperlink.add(click1))
+#text.insert(tk.INSERT, "\n\n")
+
+#text.config(state=tk.DISABLED)
+
+root.mainloop()
+
+
+
+
